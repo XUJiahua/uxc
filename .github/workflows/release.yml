@@ -141,6 +141,7 @@ jobs:
   publish-crate:
     name: Publish Crate
     needs: release
+    if: github.repository == 'holon-run/uxc'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -162,7 +163,7 @@ jobs:
   publish-npm:
     name: Publish npm Package
     needs: release
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.repository == 'holon-run/uxc'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -193,7 +194,7 @@ jobs:
 
   republish-npm:
     name: Republish npm Package
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'holon-run/uxc'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tag
@@ -225,6 +226,7 @@ jobs:
   update-homebrew-tap:
     name: Update Homebrew Tap
     needs: release
+    if: github.repository == 'holon-run/uxc'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
