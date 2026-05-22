@@ -1890,6 +1890,11 @@ async fn execute_endpoint_via_daemon(
             Some(parse_arguments(args.clone(), input_json.clone())?),
         ),
     };
+    let request_headers = if matches!(&action, daemon::RuntimeAction::Execute) {
+        collect_caller_env_auth_request_headers(&url, operation_id.as_deref(), cli)?
+    } else {
+        HashMap::new()
+    };
 
     let request = daemon::RuntimeInvokeRequest {
         request_id: format!(
@@ -1921,7 +1926,7 @@ async fn execute_endpoint_via_daemon(
             schema_mapping_file: std::env::var("UXC_SCHEMA_MAPPINGS_FILE").ok(),
             daemon_exclusive: collect_daemon_exclusive_keys(cli)?,
             daemon_idle_ttl: collect_daemon_idle_ttl(cli)?,
-            request_headers: HashMap::new(),
+            request_headers,
             cwd: std::env::current_dir()
                 .ok()
                 .map(|path| path.to_string_lossy().into_owned()),
@@ -4201,6 +4206,37 @@ fn collect_inject_env_specs(cli: &Cli) -> Result<Vec<InjectEnvSpec>> {
     parse_inject_env_specs(&cli.inject_env)
 }
 
+fn collect_caller_env_auth_request_headers(
+    endpoint: &str,
+    operation_id: Option<&str>,
+    cli: &Cli,
+) -> Result<HashMap<String, String>> {
+    let Some(auth_endpoint) =
+        operation_id.and_then(|operation| openapi_operation_endpoint(endpoint, operation))
+    else {
+        return Ok(HashMap::new());
+    };
+    let headers =
+        auth::resolve_caller_env_auth_headers_for_endpoint(&auth_endpoint, cli.auth.clone())?;
+    Ok(headers.into_iter().collect())
+}
+
+fn openapi_operation_endpoint(endpoint: &str, operation_id: &str) -> Option<String> {
+    let (_, path) = operation_id.split_once(':')?;
+    if !path.starts_with('/') {
+        return None;
+    }
+
+    let endpoint = endpoint.trim_end_matches('/');
+    let endpoint = adapters::openapi::OpenAPIAdapter::SCHEMA_ENDPOINTS
+        .iter()
+        .find_map(|suffix| endpoint.strip_suffix(suffix))
+        .unwrap_or(endpoint)
+        .trim_end_matches('/');
+
+    Some(format!("{}{}", endpoint, path))
+}
+
 fn expand_tilde_key(key: &str) -> Result<String> {
     if key == "~" || key.starts_with("~/") || key.starts_with("~\\") {
         let home = resolve_home_dir().ok_or_else(|| {
@@ -5624,9 +5660,12 @@ fn build_managed_source_spec(
         })?),
         None => None,
     };
+    let endpoint = normalize_endpoint_url(input.endpoint);
+    let request_headers =
+        collect_caller_env_auth_request_headers(&endpoint, transport_operation_id.as_deref(), cli)?;
 
     Ok(daemon::ManagedSourceSpec {
-        endpoint: normalize_endpoint_url(input.endpoint),
+        endpoint,
         operation_id: transport_operation_id,
         args: args_map,
         resource_uri: input.resource_uri.clone(),
@@ -5655,7 +5694,7 @@ fn build_managed_source_spec(
             schema_mapping_file: None,
             daemon_exclusive: collect_daemon_exclusive_keys(cli)?,
             daemon_idle_ttl: collect_daemon_idle_ttl(cli)?,
-            request_headers: HashMap::new(),
+            request_headers,
             cwd: std::env::current_dir()
                 .ok()
                 .map(|path| path.to_string_lossy().into_owned()),

@@ -3910,8 +3910,11 @@ impl DaemonRuntime {
         let cache = self.build_cache(&request.options)?;
         let cache_for_fallback = cache.clone();
         let cache_for_mcp = cache.clone();
-        let root_auth_profile =
-            auth::resolve_auth_for_endpoint(&request.endpoint, request.options.auth.clone())?;
+        let root_auth_profile = if request.options.request_headers.is_empty() {
+            auth::resolve_auth_for_endpoint(&request.endpoint, request.options.auth.clone())?
+        } else {
+            None
+        };
         let detection_auth_profile = if request.options.schema_url.is_some() {
             None
         } else {
@@ -8231,6 +8234,10 @@ fn effective_runtime_auth_profile(
     protocol: ProtocolType,
     root_auth_profile: Option<Profile>,
 ) -> Result<Option<Profile>> {
+    if !request.options.request_headers.is_empty() {
+        return Ok(None);
+    }
+
     if protocol == ProtocolType::OpenAPI {
         if let Some(endpoint) = openapi_runtime_endpoint(request) {
             return auth::resolve_auth_for_endpoint(&endpoint, request.options.auth.clone());

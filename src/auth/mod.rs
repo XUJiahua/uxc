@@ -600,6 +600,15 @@ impl Profile {
         self.resolve_field_value(PRIMARY_SECRET_FIELD)
     }
 
+    /// Returns true when any credential secret material is sourced from an environment variable.
+    pub fn has_env_sourced_secret(&self) -> bool {
+        matches!(&self.secret_source, Some(SecretSource::Env { .. }))
+            || self
+                .fields
+                .values()
+                .any(|source| matches!(source, SecretSource::Env { .. }))
+    }
+
     /// Materialize secret into `api_key` for runtime execution.
     pub fn materialize_runtime(mut self) -> Result<Self> {
         if let Some(secret) = self.resolve_secret()? {
@@ -1281,11 +1290,41 @@ pub fn resolve_auth_for_endpoint(
     endpoint: &str,
     explicit_credential: Option<String>,
 ) -> Result<Option<Profile>> {
+    let Some(profile) = resolve_auth_profile_for_endpoint(endpoint, explicit_credential)? else {
+        return Ok(None);
+    };
+
+    let profile = profile.materialize_runtime()?;
+    validate_ready(&profile)?;
+    Ok(Some(profile))
+}
+
+/// Resolve auth headers that must be materialized in the caller process.
+pub fn resolve_caller_env_auth_headers_for_endpoint(
+    endpoint: &str,
+    explicit_credential: Option<String>,
+) -> Result<Vec<(String, String)>> {
+    let Some(profile) = resolve_auth_profile_for_endpoint(endpoint, explicit_credential)? else {
+        return Ok(Vec::new());
+    };
+
+    if !profile.has_env_sourced_secret() {
+        return Ok(Vec::new());
+    }
+
+    let profile = profile.materialize_runtime()?;
+    validate_ready(&profile)?;
+    resolved_profile_auth_headers(&profile)
+}
+
+fn resolve_auth_profile_for_endpoint(
+    endpoint: &str,
+    explicit_credential: Option<String>,
+) -> Result<Option<Profile>> {
     let profiles = Profiles::load_profiles()?;
 
     if let Some(id) = explicit_credential {
-        let profile = profiles.get_profile(&id)?.clone().materialize_runtime()?;
-        validate_ready(&profile)?;
+        let profile = profiles.get_profile(&id)?.clone();
         return Ok(Some(profile));
     }
 
@@ -1302,12 +1341,10 @@ pub fn resolve_auth_for_endpoint(
                 rule.id, rule.credential
             )
         })?
-        .clone()
-        .materialize_runtime()?;
+        .clone();
     let mut profile = profile;
     profile.signer = rule.signer.clone();
 
-    validate_ready(&profile)?;
     Ok(Some(profile))
 }
 

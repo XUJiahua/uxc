@@ -168,6 +168,109 @@ fn endpoint_host_help_autostarts_daemon_and_sets_meta() {
 
 #[test]
 #[serial]
+fn daemon_openapi_env_secret_auth_resolves_from_caller_environment() {
+    let temp_home = tempfile::tempdir().expect("temp home should be created");
+    daemon_stop_best_effort_with_home(temp_home.path());
+
+    let mut server = mockito::Server::new();
+    let _schema = server
+        .mock("GET", "/openapi.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+  "openapi": "3.0.0",
+  "info": { "title": "test", "version": "1.0.0" },
+  "paths": { "/health": { "get": { "responses": { "200": { "description": "ok" } } } } }
+}"#,
+        )
+        .create();
+    let _health = server
+        .mock("GET", "/health")
+        .match_header("authorization", "Bearer caller-token")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"status":"ok"}"#)
+        .create();
+
+    let credential = uxc_command_with_home(temp_home.path())
+        .arg("auth")
+        .arg("credential")
+        .arg("set")
+        .arg("caller-env")
+        .arg("--auth-type")
+        .arg("api_key")
+        .arg("--secret-env")
+        .arg("UXC_CALLER_ENV_AUTH_TOKEN")
+        .arg("--header")
+        .arg("Authorization=Bearer {{secret}}")
+        .output()
+        .expect("credential set should run");
+    assert!(
+        credential.status.success(),
+        "credential set should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&credential.stdout),
+        String::from_utf8_lossy(&credential.stderr)
+    );
+
+    let binding = uxc_command_with_home(temp_home.path())
+        .arg("auth")
+        .arg("binding")
+        .arg("add")
+        .arg("--id")
+        .arg("caller-env-binding")
+        .arg("--host")
+        .arg("127.0.0.1")
+        .arg("--scheme")
+        .arg("http")
+        .arg("--credential")
+        .arg("caller-env")
+        .output()
+        .expect("binding add should run");
+    assert!(
+        binding.status.success(),
+        "binding add should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&binding.stdout),
+        String::from_utf8_lossy(&binding.stderr)
+    );
+
+    let start = uxc_command_with_home(temp_home.path())
+        .arg("daemon")
+        .arg("start")
+        .env_remove("UXC_CALLER_ENV_AUTH_TOKEN")
+        .output()
+        .expect("daemon start should run");
+    assert!(
+        start.status.success(),
+        "daemon start should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&start.stdout),
+        String::from_utf8_lossy(&start.stderr)
+    );
+
+    let output = uxc_command_with_home(temp_home.path())
+        .arg(server.url())
+        .arg("--no-cache")
+        .arg("get:/health")
+        .env("UXC_CALLER_ENV_AUTH_TOKEN", "caller-token")
+        .output()
+        .expect("openapi call should run");
+
+    assert!(
+        output.status.success(),
+        "openapi call should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["protocol"], "openapi");
+    assert_eq!(json["data"]["status"], "ok");
+
+    daemon_stop_best_effort_with_home(temp_home.path());
+}
+
+#[test]
+#[serial]
 fn daemon_start_reports_started_now_and_already_running() {
     let temp_home = tempfile::tempdir().expect("temp home should be created");
     daemon_stop_best_effort_with_home(temp_home.path());
