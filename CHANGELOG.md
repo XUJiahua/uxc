@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.6] - 2026-05-22
+
+### Changed
+- Improved managed-source polling efficiency by closing a daemon hot path.
+
+### Fixed
+- Resolved caller-environment auth headers for direct CLI calls, daemon invocations, and managed-source polling.
+- Fixed OAuth session handling for hyphenated credential IDs.
+
 ## [0.15.5] - 2026-05-14
 
 ### Changed

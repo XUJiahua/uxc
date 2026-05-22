@@ -1891,7 +1891,7 @@ async fn execute_endpoint_via_daemon(
         ),
     };
     let request_headers = if matches!(&action, daemon::RuntimeAction::Execute) {
-        collect_caller_env_auth_request_headers(&url, operation_id.as_deref(), cli)?
+        collect_caller_env_auth_request_headers(url, operation_id.as_deref(), cli)?
     } else {
         HashMap::new()
     };
